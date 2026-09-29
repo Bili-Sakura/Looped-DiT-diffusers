@@ -1,0 +1,19 @@
+# Training and sampling (tested with torch 2.1.2, transformers 4.44, webdataset 1.0.2)
+torch>=2.1
+torchvision
+transformers>=4.40,<5  # 5.x tokenizes trailing whitespace differently from the trained models
+sentencepiece
+numpy
+pyyaml
+pillow
+webdataset>=1.0
+wandb
+
+# Data preparation (img2dataset, for CC12M, goes in its own environment: see README)
+huggingface_hub
+datasets
+pyarrow
+pandas
+
+# Tests
+pytest

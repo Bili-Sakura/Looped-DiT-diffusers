@@ -1,0 +1,39 @@
+# Benchmark evaluation of one checkpoint (python -m looped_dit.eval.run --config configs/eval.yml).
+# Protocol of the paper: EMA weights, 100 Euler steps, classifier-free guidance 6.0, 8 GPUs.
+
+checkpoint: ${OUTPUT_ROOT}/b16_finetune/checkpoints/checkpoint_0580000.pt
+output_dir: ${OUTPUT_ROOT}/b16_finetune/eval
+gpus: 8
+steps: 100
+cfg_scale: 6.0
+loops: null            # inference loop depth; null = the trained depth
+seed: 0
+
+# Interpreters for scorers that need their own environment (default: the current one).
+# python:
+#   geneval: /path/to/geneval-env/bin/python   # mmdet + mmcv + open_clip
+#   dpg: /path/to/dpg-env/bin/python           # modelscope (mPLUG)
+#   judge: /path/to/vllm-env/bin/python        # vllm + qwen-vl-utils
+
+benchmarks:
+  geneval:
+    data: ${ASSET_ROOT}/geneval/evaluation_metadata.jsonl
+    detector: ${ASSET_ROOT}/geneval/detector           # holds mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco.pth
+    # detector_config: /path/to/mmdetection/configs/mask2former/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco.py
+  dpg:
+    data: Jialuo21/DPG-Bench
+  prism:
+    data: ${ASSET_ROOT}/prism/captions/en
+    script: ${ASSET_ROOT}/prism/eval_qwen25.py         # evaluation/eval_qwen25.py of the PRISM-Bench repository
+    judge_model: Qwen/Qwen2.5-VL-72B-Instruct
+  corebench:
+    data: ${ASSET_ROOT}/corebench/data
+    judge_model: Qwen/Qwen3-VL-32B-Thinking
+  spatial_geneval:
+    data: ${ASSET_ROOT}/spatial_geneval/SpatialGenEval_T2I_Prompts.jsonl
+    judge_model: Qwen/Qwen2.5-VL-72B-Instruct
+  tiif:                                                # TIIF-Bench, short prompts
+    data: ${ASSET_ROOT}/tiif/data                      # data/ of the TIIF-Bench repository
+    script: ${ASSET_ROOT}/tiif/eval_with_vlm.py        # eval/eval_with_vlm.py of the TIIF-Bench repository
+    judge_model: gpt-4o
+    api_base: https://api.openai.com/v1                # any OpenAI-compatible endpoint; key in $OPENAI_API_KEY

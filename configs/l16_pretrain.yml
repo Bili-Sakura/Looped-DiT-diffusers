@@ -1,0 +1,44 @@
+# Looped-DiT L/16 pretraining: CC12M + FLUX-Reason-6M, 500k steps.
+
+# Architecture
+image_size: 512
+patch_size: 16
+hidden_size: 1248
+num_heads: 24
+head_dim: 52
+mlp_ratio: 2.7051282051282053
+pca_channels: 128
+text_preamble_depth: 2
+loop_split: [8, 7, 8]                  # pre-loop / looped / post-loop blocks
+
+# Looped-DiT components (toggle to ablate)
+num_loops: 4                           # loop depth N; 1 disables looping
+share_loop_weights: true               # false: untied passes (compute-matched "deeper" baseline)
+deep_supervision: true                 # flow loss on every loop exit
+deep_supervision_weighting: final_plus_mean  # final_plus_mean | exponential | uniform
+use_xsa: true                          # exclusive self-attention in the looped blocks
+use_attn_gate: false                   # head-wise sigmoid gate in the looped blocks
+
+# Data: CC12M and FLUX-Reason-6M, read as one pool
+dataset: chunks
+chunk_dirs:
+  - ${DATA_ROOT}/cc12m_chunks
+  - ${DATA_ROOT}/fluxreason_chunks
+shuffle_buffer: 4096
+
+# Optimization. Reference setup: 64 GPUs x 2 per GPU x 8 accumulation steps; accumulation adapts to the GPU count.
+batch_size: 1024
+micro_batch_size: 2
+num_steps: 500000
+warmup_steps: 5000
+learning_rate: 2.0e-4
+adam_beta2: 0.95
+weight_decay: 0.0
+max_grad_norm: 0.1
+ema_decay: 0.9999
+
+# Flow matching
+noise_scale: 2.0
+t_logit_mean: -0.8
+t_logit_std: 0.8
+label_drop_rate: 0.1
