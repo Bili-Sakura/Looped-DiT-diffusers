@@ -34,6 +34,7 @@ def main() -> None:
     text_encoder = TextEncoder(args.text_encoder or cfg.text_encoder, cfg.prompt_length, device)
     images = []
     for loops in args.loops:
+        assert loops is None or loops >= 1, f"loop depth must be >= 1, got {loops}"
         torch.manual_seed(args.seed)  # same noise for every loop depth
         images += generate(model, text_encoder, args.prompt, cfg.image_size, args.steps, args.cfg_scale, loops, cfg.noise_scale)
     # One row per loop depth, one column per prompt.
