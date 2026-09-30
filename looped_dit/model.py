@@ -110,9 +110,10 @@ def sincos_2d(dim: int, grid: int) -> torch.Tensor:
 
 
 def exclusive_self_attention(out: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
-    """XSA (Zhai, 2026): remove from each token's attention output the component
-    along that token's own value vector, so attention only writes content from
-    other tokens. `out` and `v` are token-aligned, heads first."""
+    """XSA (Zhai, 2026: https://arxiv.org/abs/2603.09078):
+    remove from each token's attention output the component along that token's
+    own value vector, so attention only writes content from other tokens.
+    `out` and `v` are token-aligned, heads first."""
     v_hat = F.normalize(v.float(), dim=-1)
     out_f = out.float()
     return (out_f - (out_f * v_hat).sum(dim=-1, keepdim=True) * v_hat).to(out.dtype)
@@ -164,10 +165,12 @@ class TextBlock(nn.Module):
 class DoubleStreamBlock(nn.Module):
     """MMDiT block: separate image/text weights, one joint attention over both.
 
-    use_xsa / use_attn_gate turn on self-modulating attention (set only for the
-    looped blocks). The attention gate (Qiu et al., 2026) is head-wise:
+    `use_xsa` / `use_attn_gate` turn on self-modulating attention (set only for the
+    looped blocks). The attention gate (Qiu et al., 2026:
+    https://arxiv.org/abs/2505.06708) is head-wise:
     y_i <- y_i * sigmoid(W_g u_i + b_g), with u_i the block's normed input.
-    update_text=False skips the text-stream update, for the last block, whose
+    
+    `update_text=False` skips the text-stream update, for the last block, whose
     text output is never read.
     """
 
