@@ -1,0 +1,23 @@
+{
+  "_class_name": "LoopedDiTTransformer2DModel",
+  "_diffusers_version": "0.39.0",
+  "head_dim": 64,
+  "hidden_size": 768,
+  "image_size": 512,
+  "in_channels": 3,
+  "loop_split": [
+    6,
+    5,
+    6
+  ],
+  "mlp_ratio": 2.6667,
+  "num_heads": 12,
+  "num_loops": 4,
+  "patch_size": 32,
+  "pca_channels": 128,
+  "share_loop_weights": true,
+  "text_dim": 1024,
+  "text_preamble_depth": 2,
+  "use_attn_gate": false,
+  "use_xsa": true
+}

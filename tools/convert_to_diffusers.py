@@ -1,7 +1,7 @@
 """Convert a Looped-DiT training checkpoint into a diffusers folder.
 
     python tools/convert_to_diffusers.py --checkpoint checkpoints/looped-dit-b16.pt \\
-        --output-dir checkpoints/looped-dit-b16
+        --output-dir Looped-DiT-diffusers/Looped-DiT-B-16
 
 The folder is what `DiffusionPipeline.from_pretrained` loads (`pipeline.py`, transformer weights,
 scheduler, and, by default, FLAN-T5). Pass `--skip-text-encoder` to leave the text encoder as a

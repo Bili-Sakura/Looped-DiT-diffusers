@@ -11,13 +11,22 @@ import torch
 from diffusers import __version__ as diffusers_version
 from transformers import AutoTokenizer, T5EncoderModel
 
-from .config import TrainConfig
+from .config import REPO_ROOT, TrainConfig
 from .pipeline import LoopedDiTPipeline
 from .transformer_looped_dit import LoopedDiTTransformer2DModel
 
 PIPELINE_CLASS_NAME = "LoopedDiTPipeline"
 TRANSFORMER_FILE = "transformer_looped_dit.py"
 TRANSFORMER_CLASS_NAME = "LoopedDiTTransformer2DModel"
+HF_REPO_NAME = "Looped-DiT-diffusers"
+
+# Folder name -> training config whose architecture is written into transformer/config.json.
+# Fine-tuning configs match the released sampling models; architecture matches pretraining.
+HF_VARIANTS: dict[str, str] = {
+    "Looped-DiT-B-32": "configs/b32_finetune.yml",
+    "Looped-DiT-B-16": "configs/b16_finetune.yml",
+    "Looped-DiT-L-16": "configs/l16_finetune.yml",
+}
 
 _PACKAGE = Path(__file__).resolve().parent
 
@@ -172,6 +181,91 @@ def load_pipeline(
     return pipe.to(device)
 
 
+def _model_index(cfg: TrainConfig, text_encoder_name: str, text_encoder: list[Any], tokenizer: list[Any]) -> dict[str, Any]:
+    return {
+        "_class_name": ["pipeline", PIPELINE_CLASS_NAME],
+        "_diffusers_version": diffusers_version,
+        "default_num_inference_steps": 100,
+        "noise_scale": cfg.noise_scale,
+        "prompt_length": cfg.prompt_length,
+        "text_encoder_name": text_encoder_name,
+        "scheduler": ["diffusers", "FlowMatchEulerDiscreteScheduler"],
+        "text_encoder": text_encoder,
+        "tokenizer": tokenizer,
+        "transformer": [Path(TRANSFORMER_FILE).stem, TRANSFORMER_CLASS_NAME],
+    }
+
+
+def write_variant_code_and_config(
+    output: str | Path,
+    cfg: TrainConfig,
+    text_encoder_name: str | None = None,
+) -> Path:
+    r"""
+    Write one diffusers variant folder without weights.
+
+    Creates `pipeline.py`, `model_index.json`, `scheduler/scheduler_config.json`,
+    `transformer/config.json`, and `transformer/transformer_looped_dit.py`. Does not write
+    `diffusion_pytorch_model.safetensors` or a bundled text encoder. An existing `model_index.json`
+    keeps its text-encoder and tokenizer entries when those are already set, so refreshing the code
+    after conversion does not drop a bundled FLAN-T5.
+
+    Args:
+        output: Variant directory, for example `Looped-DiT-diffusers/Looped-DiT-B-16`.
+        cfg: Training config whose architecture is stored in the transformer config.
+        text_encoder_name: Hub id stored on the pipeline. Defaults to `cfg.text_encoder`.
+
+    Returns:
+        `output` as a `Path`.
+    """
+    output = Path(output)
+    (output / "transformer").mkdir(parents=True, exist_ok=True)
+    with torch.device("meta"):
+        transformer = LoopedDiTTransformer2DModel(**cfg.model_kwargs())
+    transformer.save_config(output / "transformer")
+    shutil.copyfile(_PACKAGE / TRANSFORMER_FILE, output / "transformer" / TRANSFORMER_FILE)
+    LoopedDiTPipeline._default_scheduler().save_pretrained(output / "scheduler")
+    shutil.copyfile(_PACKAGE / "pipeline.py", output / "pipeline.py")
+
+    name = text_encoder_name or cfg.text_encoder
+    text_encoder: list[Any] = [None, None]
+    tokenizer: list[Any] = [None, None]
+    index_path = output / "model_index.json"
+    if index_path.exists():
+        previous = json.loads(index_path.read_text(encoding="utf-8"))
+        if previous.get("text_encoder") not in (None, [None, None]):
+            text_encoder = previous["text_encoder"]
+        if previous.get("tokenizer") not in (None, [None, None]):
+            tokenizer = previous["tokenizer"]
+    index = _model_index(cfg, name, text_encoder, tokenizer)
+    index_path.write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
+    return output
+
+
+def prepare_hf_repo(root: str | Path | None = None) -> Path:
+    r"""
+    Fill the Hugging Face repo layout with pipeline code and configs for every released variant.
+
+    Weights are not written. Convert a training checkpoint into a variant folder afterwards:
+
+        python tools/convert_to_diffusers.py --checkpoint checkpoints/looped-dit-b16.pt \\
+            --output-dir Looped-DiT-diffusers/Looped-DiT-B-16
+
+    Args:
+        root: Destination. Defaults to `Looped-DiT-diffusers/` in the repository root.
+            `README.md` and `.gitattributes` in that directory are left untouched.
+
+    Returns:
+        The repo directory.
+    """
+    root = Path(root) if root is not None else REPO_ROOT / HF_REPO_NAME
+    root.mkdir(parents=True, exist_ok=True)
+    for folder, config_path in HF_VARIANTS.items():
+        cfg = TrainConfig.from_yaml(REPO_ROOT / config_path)
+        write_variant_code_and_config(root / folder, cfg)
+    return root
+
+
 def convert_to_diffusers(
     checkpoint: str | Path,
     output_dir: str | Path,
@@ -223,18 +317,7 @@ def convert_to_diffusers(
         text_encoder_entry = ["transformers", text_encoder.__class__.__name__]
 
     shutil.copyfile(_PACKAGE / "pipeline.py", output / "pipeline.py")
-    model_index = {
-        "_class_name": ["pipeline", PIPELINE_CLASS_NAME],
-        "_diffusers_version": diffusers_version,
-        "default_num_inference_steps": 100,
-        "noise_scale": cfg.noise_scale,
-        "prompt_length": cfg.prompt_length,
-        "text_encoder_name": name,
-        "scheduler": ["diffusers", "FlowMatchEulerDiscreteScheduler"],
-        "text_encoder": text_encoder_entry,
-        "tokenizer": tokenizer_entry,
-        "transformer": [Path(TRANSFORMER_FILE).stem, TRANSFORMER_CLASS_NAME],
-    }
+    model_index = _model_index(cfg, name, text_encoder_entry, tokenizer_entry)
     (output / "model_index.json").write_text(json.dumps(model_index, indent=2) + "\n", encoding="utf-8")
     metadata = {
         "source_checkpoint": str(Path(checkpoint)),
