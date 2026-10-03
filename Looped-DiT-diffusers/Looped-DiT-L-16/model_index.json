@@ -1,0 +1,27 @@
+{
+  "_class_name": [
+    "pipeline",
+    "LoopedDiTPipeline"
+  ],
+  "_diffusers_version": "0.39.0",
+  "default_num_inference_steps": 100,
+  "noise_scale": 2.0,
+  "prompt_length": 256,
+  "text_encoder_name": "google/flan-t5-large",
+  "scheduler": [
+    "diffusers",
+    "FlowMatchEulerDiscreteScheduler"
+  ],
+  "text_encoder": [
+    null,
+    null
+  ],
+  "tokenizer": [
+    null,
+    null
+  ],
+  "transformer": [
+    "transformer_looped_dit",
+    "LoopedDiTTransformer2DModel"
+  ]
+}

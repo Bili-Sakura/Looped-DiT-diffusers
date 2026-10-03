@@ -59,11 +59,12 @@ Spatial denotes SpatialGenEval. TIIF denotes the short-prompt version of TIIF-Be
 
 ```text
 .
-├── configs/          # training configs (B/32, B/16, L/16) and the evaluation config
-├── looped_dit/       # model, training, diffusers pipeline
-│   └── eval/         # benchmark image generation and scoring
-├── tools/            # dataset preparation and diffusers checkpoint conversion
-├── tests/            # unit tests
+├── configs/                 # training configs (B/32, B/16, L/16) and the evaluation config
+├── looped_dit/              # model, training, diffusers pipeline
+│   └── eval/                # benchmark image generation and scoring
+├── Looped-DiT-diffusers/    # Hugging Face repo layout: code and configs, weights added later
+├── tools/                   # dataset preparation and diffusers checkpoint conversion
+├── tests/                   # unit tests
 └── assets/
 ```
 
@@ -107,12 +108,17 @@ python -m looped_dit.sample --checkpoint checkpoints/looped-dit-b16.pt \
     --prompt "a red cube on top of a blue sphere" --loops 1 2 3 4 --out loops.png
 
 python tools/convert_to_diffusers.py --checkpoint checkpoints/looped-dit-b16.pt \
-    --output-dir checkpoints/looped-dit-b16
+    --output-dir Looped-DiT-diffusers/Looped-DiT-B-16
 ```
 
-`--loops` sets the loop depth, and several depths give one row each. The converted folder
-ships `pipeline.py`, the transformer (with `transformer_looped_dit.py`), the scheduler, and
-FLAN-T5. `--skip-text-encoder` leaves the text encoder as a Hub id.
+`--loops` sets the loop depth, and several depths give one row each.
+`Looped-DiT-diffusers/` is already a Hugging Face repo layout: each variant folder
+(`Looped-DiT-B-32`, `Looped-DiT-B-16`, `Looped-DiT-L-16`) contains `pipeline.py`, the
+transformer module, `model_index.json`, and the scheduler config. Conversion adds
+`transformer/diffusion_pytorch_model.safetensors` and, by default, FLAN-T5 under
+`text_encoder/` and `tokenizer/`. `--skip-text-encoder` leaves the text encoder as a Hub id.
+`python tools/prepare_hf_repo.py` rewrites the code and configs from this package and does not
+delete weight files.
 
 From Python, local folder or a Hub repo named like `UserID/Looped-DiT-diffusers`:
 
@@ -121,7 +127,7 @@ from pathlib import Path
 import torch
 from diffusers import DiffusionPipeline
 
-model_dir = Path("checkpoints/looped-dit-b16").resolve()
+model_dir = Path("Looped-DiT-diffusers/Looped-DiT-B-16").resolve()
 pipe = DiffusionPipeline.from_pretrained(
     str(model_dir),
     local_files_only=True,

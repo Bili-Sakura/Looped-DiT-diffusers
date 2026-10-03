@@ -9,7 +9,7 @@ import torch
 from diffusers import DiffusionPipeline, EulerDiscreteScheduler, FlowMatchEulerDiscreteScheduler
 from PIL import Image
 
-from looped_dit.checkpoint import convert_to_diffusers, pipeline_from_checkpoint
+from looped_dit.checkpoint import HF_VARIANTS, convert_to_diffusers, pipeline_from_checkpoint, prepare_hf_repo
 from looped_dit.config import TrainConfig
 from looped_dit.diffusion import euler_sample
 from looped_dit.pipeline import LoopedDiTPipeline, paper_euler_sigmas
@@ -169,6 +169,43 @@ def test_convert_roundtrip_loads_custom_pipeline(tmp_path: Path):
     b = reference(prompt_embeds=text, prompt_attention_mask=mask, num_inference_steps=2, guidance_scale=1.0,
                   generator=generator, output_type="latent").images
     assert torch.allclose(a, b, atol=1e-5, rtol=1e-5)
+
+
+def test_hf_repo_skeleton_has_code_and_configs_without_weights(tmp_path: Path):
+    root = prepare_hf_repo(tmp_path / "Looped-DiT-diffusers")
+    package = Path(__file__).resolve().parents[1] / "looped_dit"
+    assert set(HF_VARIANTS) == {path.name for path in root.iterdir() if path.is_dir()}
+    for folder, config_path in HF_VARIANTS.items():
+        variant = root / folder
+        assert (variant / "pipeline.py").read_bytes() == (package / "pipeline.py").read_bytes()
+        assert (variant / "transformer" / "transformer_looped_dit.py").read_bytes() == (
+            package / "transformer_looped_dit.py"
+        ).read_bytes()
+        scheduler_files = list((variant / "scheduler").iterdir())
+        assert scheduler_files == [variant / "scheduler" / "scheduler_config.json"]
+        index = json.loads((variant / "model_index.json").read_text())
+        assert index["_class_name"] == ["pipeline", "LoopedDiTPipeline"]
+        assert index["transformer"] == ["transformer_looped_dit", "LoopedDiTTransformer2DModel"]
+        assert index["text_encoder"] == [None, None] and index["tokenizer"] == [None, None]
+        config = LoopedDiTTransformer2DModel.load_config(variant / "transformer")
+        with torch.device("meta"):
+            built = LoopedDiTTransformer2DModel.from_config(config)
+        trained = TrainConfig.from_yaml(Path(__file__).resolve().parents[1] / config_path)
+        for key, value in trained.model_kwargs().items():
+            got = built.config[key]
+            expect = list(value) if isinstance(value, tuple) else value
+            assert got == expect, (folder, key, got, expect)
+        assert not list(variant.rglob("*.safetensors"))
+
+    shipped = Path(__file__).resolve().parents[1] / "Looped-DiT-diffusers"
+    for folder in HF_VARIANTS:
+        assert (shipped / folder / "pipeline.py").read_bytes() == (root / folder / "pipeline.py").read_bytes()
+        assert json.loads((shipped / folder / "model_index.json").read_text()) == json.loads(
+            (root / folder / "model_index.json").read_text()
+        )
+        assert json.loads((shipped / folder / "transformer" / "config.json").read_text()) == json.loads(
+            (root / folder / "transformer" / "config.json").read_text()
+        )
 
 
 def test_paper_sigma_grid_matches_linspace():
