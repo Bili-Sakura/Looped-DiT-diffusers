@@ -62,7 +62,7 @@ Spatial denotes SpatialGenEval. TIIF denotes the short-prompt version of TIIF-Be
 ├── configs/          # training configs (B/32, B/16, L/16) and the evaluation config
 ├── looped_dit/       # model, training, sampling
 │   └── eval/         # benchmark image generation and scoring
-├── tools/            # dataset preparation
+├── tools/            # dataset preparation and checkpoint → diffusers export
 ├── tests/            # unit tests
 └── assets/
 ```
@@ -95,25 +95,53 @@ loop depth, and several depths give one row each:
 ```bash
 hf download sensenova/Looped-DiT-B16 looped-dit-b16.pt --local-dir checkpoints
 
-python -m looped_dit.sample --checkpoint checkpoints/looped-dit-b16.pt \
+python -m looped_dit.sample --model checkpoints/looped-dit-b16.pt \
     --prompt "a red cube on top of a blue sphere" --out sample.png
 
-python -m looped_dit.sample --checkpoint checkpoints/looped-dit-b16.pt \
+python -m looped_dit.sample --model checkpoints/looped-dit-b16.pt \
     --prompt "a red cube on top of a blue sphere" --loops 1 2 3 4 --out loops.png
 ```
 
-From Python:
+Export a checkpoint to a self-contained diffusers folder (for Hub upload or
+`DiffusionPipeline.from_pretrained`):
+
+```bash
+python tools/convert_checkpoint_to_diffusers.py \
+    --checkpoint checkpoints/looped-dit-b16.pt \
+    --output-dir exports/Looped-DiT-B16
+```
+
+From Python (native diffusers custom pipeline, same pattern as
+[BiliSakura/MiniT2I-diffusers](https://huggingface.co/BiliSakura/MiniT2I-diffusers)):
 
 ```python
 import torch
-from looped_dit.pipeline import TextEncoder, generate, load_model
+from diffusers import DiffusionPipeline
 
 device = torch.device("cuda")
-model, cfg = load_model("checkpoints/looped-dit-b16.pt", device)  # EMA weights, bf16
-text_encoder = TextEncoder(cfg.text_encoder, cfg.prompt_length, device)
-torch.manual_seed(0)
-image = generate(model, text_encoder, ["a red cube on top of a blue sphere"], num_loops=4)[0]
+pipe = DiffusionPipeline.from_pretrained(
+    "exports/Looped-DiT-B16",
+    trust_remote_code=True,
+    torch_dtype=torch.bfloat16,
+).to(device)
+
+generator = torch.Generator(device=device).manual_seed(0)
+image = pipe(
+    "a red cube on top of a blue sphere",
+    num_inference_steps=100,
+    guidance_scale=6.0,
+    num_loops=4,
+    generator=generator,
+).images[0]
 image.save("sample.png")
+```
+
+Legacy `.pt` checkpoints load without conversion:
+
+```python
+from looped_dit.diffusers import load_pipeline
+
+pipe = load_pipeline("checkpoints/looped-dit-b16.pt", device, dtype=torch.bfloat16)
 ```
 
 ### Recommended Inference Settings

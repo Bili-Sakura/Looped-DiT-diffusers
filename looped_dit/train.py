@@ -31,7 +31,7 @@ from .config import TrainConfig
 from .data import make_loader
 from .diffusion import deep_supervision_weights, euler_sample, training_loss
 from .model import LoopedMMDiT
-from .pipeline import TextEncoder
+from .text_encoding import TextEncoder
 from .utils import (
     amp_dtype,
     atomic_save,

@@ -19,7 +19,7 @@ import torch
 import torch.distributed as dist
 from PIL import Image
 
-from ..pipeline import TextEncoder, generate, load_model
+from ..diffusers import load_pipeline
 from ..utils import init_distributed, rank, world_size
 from .benchmarks import BENCHMARKS, Prompt, image_path, load_prompts
 
@@ -51,7 +51,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Generate benchmark images.")
     parser.add_argument("--benchmark", required=True, choices=BENCHMARKS)
     parser.add_argument("--data", required=True, help="benchmark prompt file or directory")
-    parser.add_argument("--checkpoint", required=True)
+    parser.add_argument("--checkpoint", required=True, help="diffusers folder or legacy .pt checkpoint")
+    parser.add_argument("--weights", default="ema", choices=("ema", "model"), help="for .pt checkpoints only")
     parser.add_argument("--outdir", required=True)
     parser.add_argument("--samples-per-prompt", type=int, default=4)
     parser.add_argument("--batch-size", type=int, default=4)
@@ -59,7 +60,6 @@ def main() -> None:
     parser.add_argument("--cfg-scale", type=float, default=6.0)
     parser.add_argument("--loops", type=int, default=None, help="loop depth (default: as trained)")
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--text-encoder", help="override the text encoder path from the checkpoint")
     args = parser.parse_args()
     if args.benchmark == "dpg" and args.samples_per_prompt != 4:
         parser.error("DPG-Bench is scored on 2x2 grids: use --samples-per-prompt 4")
@@ -72,15 +72,23 @@ def main() -> None:
     todo = [p for p in prompts if not all(x.exists() for x in output_paths(args.benchmark, outdir, p, args.samples_per_prompt))]
     print(f"[rank {rank()}] {args.benchmark}: {len(todo)} of {len(prompts)} prompts to generate", flush=True)
     if todo:
-        model, cfg = load_model(args.checkpoint, device)
-        text_encoder = TextEncoder(args.text_encoder or cfg.text_encoder, cfg.prompt_length, device)
+        dtype = torch.bfloat16 if device.type == "cuda" else torch.float32
+        pipe = load_pipeline(args.checkpoint, device, dtype=dtype, weights=args.weights)
         for n, prompt in enumerate(todo, 1):
             images: list[Image.Image] = []
             while len(images) < args.samples_per_prompt:
                 batch = min(args.batch_size, args.samples_per_prompt - len(images))
-                torch.manual_seed(args.seed + prompt.index * 1000 + len(images) + rank() * 1_000_000)
-                images += generate(model, text_encoder, [prompt.text] * batch, cfg.image_size, args.steps,
-                                   args.cfg_scale, args.loops, cfg.noise_scale)
+                generator = torch.Generator(device=device).manual_seed(
+                    args.seed + prompt.index * 1000 + len(images) + rank() * 1_000_000
+                )
+                result = pipe(
+                    [prompt.text] * batch,
+                    num_inference_steps=args.steps,
+                    guidance_scale=args.cfg_scale,
+                    num_loops=args.loops,
+                    generator=generator,
+                )
+                images += result.images
             paths = output_paths(args.benchmark, outdir, prompt, args.samples_per_prompt)
             if args.benchmark == "dpg":
                 images = [grid_2x2(images)]

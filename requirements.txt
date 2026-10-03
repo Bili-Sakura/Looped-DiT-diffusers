@@ -1,6 +1,9 @@
 # Training and sampling (tested with torch 2.1.2, transformers 4.44, webdataset 1.0.2)
 torch>=2.1
 torchvision
+diffusers>=0.32,<0.36
+safetensors
+huggingface_hub>=0.34,<1.0
 transformers>=4.40,<5  # 5.x tokenizes trailing whitespace differently from the trained models
 sentencepiece
 numpy
