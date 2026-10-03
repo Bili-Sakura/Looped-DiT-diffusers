@@ -9,6 +9,11 @@ pillow
 webdataset>=1.0
 wandb
 
+# Inference uses a custom diffusers pipeline (FlowMatchEulerDiscreteScheduler).
+diffusers>=0.32
+safetensors
+accelerate
+
 # Data preparation (img2dataset, for CC12M, goes in its own environment: see README)
 huggingface_hub
 datasets

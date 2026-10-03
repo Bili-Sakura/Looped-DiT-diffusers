@@ -60,9 +60,9 @@ Spatial denotes SpatialGenEval. TIIF denotes the short-prompt version of TIIF-Be
 ```text
 .
 ├── configs/          # training configs (B/32, B/16, L/16) and the evaluation config
-├── looped_dit/       # model, training, sampling
+├── looped_dit/       # model, training, diffusers pipeline
 │   └── eval/         # benchmark image generation and scoring
-├── tools/            # dataset preparation
+├── tools/            # dataset preparation and diffusers checkpoint conversion
 ├── tests/            # unit tests
 └── assets/
 ```
@@ -89,8 +89,13 @@ python -m pytest tests
 
 ## Inference
 
-Download a checkpoint from the [Model Zoo](#model-zoo), then generate. `--loops` sets the
-loop depth, and several depths give one row each:
+Sampling goes through a custom [diffusers](https://github.com/huggingface/diffusers) pipeline
+(`LoopedDiTPipeline`). The denoiser predicts the clean image; the pipeline integrates that
+prediction with `FlowMatchEulerDiscreteScheduler` on the paper's Euler grid. There is no VAE.
+
+Download a checkpoint from the [Model Zoo](#model-zoo). `looped_dit.sample` loads a training
+`.pt` file directly. To publish or reload it with `DiffusionPipeline.from_pretrained`, convert
+it once:
 
 ```bash
 hf download sensenova/Looped-DiT-B16 looped-dit-b16.pt --local-dir checkpoints
@@ -100,19 +105,39 @@ python -m looped_dit.sample --checkpoint checkpoints/looped-dit-b16.pt \
 
 python -m looped_dit.sample --checkpoint checkpoints/looped-dit-b16.pt \
     --prompt "a red cube on top of a blue sphere" --loops 1 2 3 4 --out loops.png
+
+python tools/convert_to_diffusers.py --checkpoint checkpoints/looped-dit-b16.pt \
+    --output-dir checkpoints/looped-dit-b16
 ```
 
-From Python:
+`--loops` sets the loop depth, and several depths give one row each. The converted folder
+ships `pipeline.py`, the transformer (with `transformer_looped_dit.py`), the scheduler, and
+FLAN-T5. `--skip-text-encoder` leaves the text encoder as a Hub id.
+
+From Python, local folder or a Hub repo named like `UserID/Looped-DiT-diffusers`:
 
 ```python
+from pathlib import Path
 import torch
-from looped_dit.pipeline import TextEncoder, generate, load_model
+from diffusers import DiffusionPipeline
 
-device = torch.device("cuda")
-model, cfg = load_model("checkpoints/looped-dit-b16.pt", device)  # EMA weights, bf16
-text_encoder = TextEncoder(cfg.text_encoder, cfg.prompt_length, device)
-torch.manual_seed(0)
-image = generate(model, text_encoder, ["a red cube on top of a blue sphere"], num_loops=4)[0]
+model_dir = Path("checkpoints/looped-dit-b16").resolve()
+pipe = DiffusionPipeline.from_pretrained(
+    str(model_dir),
+    local_files_only=True,
+    custom_pipeline=str(model_dir / "pipeline.py"),
+    trust_remote_code=True,
+    torch_dtype=torch.bfloat16,
+)
+pipe.text_encoder.to(dtype=torch.float32)  # paper sampler keeps FLAN-T5 in fp32
+pipe.to("cuda")
+image = pipe(
+    "a red cube on top of a blue sphere",
+    num_inference_steps=100,
+    guidance_scale=6.0,
+    num_loops=4,
+    generator=torch.Generator(device="cuda").manual_seed(0),
+).images[0]
 image.save("sample.png")
 ```
 
@@ -158,7 +183,8 @@ as in the GenEval instructions. With a pip-installed `mmdet`, set `detector_conf
 
 ### Evaluate Checkpoints
 
-Set `checkpoint` and `output_dir` in `configs/eval.yml`, then run:
+Set `checkpoint` (a training `.pt` file or a converted diffusers folder) and `output_dir` in
+`configs/eval.yml`, then run:
 
 ```bash
 python -m looped_dit.eval.run --config configs/eval.yml

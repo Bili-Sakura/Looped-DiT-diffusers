@@ -19,7 +19,7 @@ import torch
 import torch.distributed as dist
 from PIL import Image
 
-from ..pipeline import TextEncoder, generate, load_model
+from ..checkpoint import load_pipeline
 from ..utils import init_distributed, rank, world_size
 from .benchmarks import BENCHMARKS, Prompt, image_path, load_prompts
 
@@ -72,15 +72,19 @@ def main() -> None:
     todo = [p for p in prompts if not all(x.exists() for x in output_paths(args.benchmark, outdir, p, args.samples_per_prompt))]
     print(f"[rank {rank()}] {args.benchmark}: {len(todo)} of {len(prompts)} prompts to generate", flush=True)
     if todo:
-        model, cfg = load_model(args.checkpoint, device)
-        text_encoder = TextEncoder(args.text_encoder or cfg.text_encoder, cfg.prompt_length, device)
+        pipe = load_pipeline(args.checkpoint, device, text_encoder_name=args.text_encoder)
         for n, prompt in enumerate(todo, 1):
             images: list[Image.Image] = []
             while len(images) < args.samples_per_prompt:
                 batch = min(args.batch_size, args.samples_per_prompt - len(images))
                 torch.manual_seed(args.seed + prompt.index * 1000 + len(images) + rank() * 1_000_000)
-                images += generate(model, text_encoder, [prompt.text] * batch, cfg.image_size, args.steps,
-                                   args.cfg_scale, args.loops, cfg.noise_scale)
+                images += pipe(
+                    [prompt.text] * batch,
+                    num_inference_steps=args.steps,
+                    guidance_scale=args.cfg_scale,
+                    num_loops=args.loops,
+                    output_type="pil",
+                ).images
             paths = output_paths(args.benchmark, outdir, prompt, args.samples_per_prompt)
             if args.benchmark == "dpg":
                 images = [grid_2x2(images)]

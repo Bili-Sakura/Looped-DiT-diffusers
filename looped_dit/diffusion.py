@@ -93,7 +93,11 @@ def euler_sample(
     num_loops: int | None = None,
 ) -> torch.Tensor:
     """Euler integration from t = 0 (noise) to t = 1 (image) with classifier-free
-    guidance; num_loops sets the loop depth (default: the trained depth)."""
+    guidance; num_loops sets the loop depth (default: the trained depth).
+
+    Training previews call this on the in-memory EMA. Inference goes through
+    `LoopedDiTPipeline`, which steps `FlowMatchEulerDiscreteScheduler` on this same grid.
+    """
     was_training = model.training
     model.eval()
     b = text.shape[0]
